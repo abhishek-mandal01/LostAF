@@ -1,0 +1,13 @@
+{
+  "name": "lostaf-root",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build": "cd frontend && yarn install --frozen-lockfile || true && yarn build",
+    "start": "cd frontend && yarn start"
+  },
+  "engines": {
+    "node": "18.x"
+  },
+  "packageManager": "yarn@1.22.22"
+}
