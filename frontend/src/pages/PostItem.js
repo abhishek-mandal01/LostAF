@@ -47,9 +47,23 @@ const PostItem = ({ user, setUser }) => {
     }
 
     setSubmitting(true);
-    
+
     try {
       const submitData = new FormData();
+      // Optional reCAPTCHA v3: get token if site key provided
+      const SITE_KEY = process.env.REACT_APP_RECAPTCHA_SITE_KEY;
+      let captchaToken = null;
+      if (SITE_KEY && window.grecaptcha) {
+        try {
+          captchaToken = await new Promise((resolve) => {
+            window.grecaptcha.ready(() => {
+              window.grecaptcha.execute(SITE_KEY, { action: 'post_item' }).then((tok) => resolve(tok)).catch(() => resolve(null));
+            });
+          });
+        } catch (err) {
+          console.warn('reCAPTCHA token retrieval failed', err);
+        }
+      }
       submitData.append('type', formData.type);
       submitData.append('title', formData.title);
       submitData.append('category', formData.category);
@@ -57,16 +71,14 @@ const PostItem = ({ user, setUser }) => {
       submitData.append('date', formData.date);
       submitData.append('description', formData.description);
       submitData.append('is_anonymous', formData.is_anonymous);
+  if (captchaToken) submitData.append('captcha_token', captchaToken);
       
       if (image) {
         submitData.append('image', image);
       }
 
-      await api.post('/items', submitData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
+      // Let the browser set Content-Type and boundary for multipart/form-data
+      await api.post('/items', submitData);
 
       toast.success('Item posted successfully! We\'ll notify you if we find matches.');
       navigate('/dashboard');
@@ -87,6 +99,24 @@ const PostItem = ({ user, setUser }) => {
       console.error('Logout error:', error);
     }
   };
+
+  // Dynamically load reCAPTCHA script if site key is provided
+  React.useEffect(() => {
+    const SITE_KEY = process.env.REACT_APP_RECAPTCHA_SITE_KEY;
+    if (!SITE_KEY) return;
+
+    if (window.grecaptcha) return; // already loaded
+
+    const script = document.createElement('script');
+    script.src = `https://www.google.com/recaptcha/api.js?render=${SITE_KEY}`;
+    script.async = true;
+    script.defer = true;
+    document.body.appendChild(script);
+
+    return () => {
+      // don't remove script on unmount to allow reuse across pages
+    };
+  }, []);
 
   return (
     <div>

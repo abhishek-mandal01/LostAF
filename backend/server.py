@@ -19,6 +19,8 @@ import numpy as np
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 import requests
+import qrcode
+from urllib.parse import quote_plus
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -188,6 +190,37 @@ def process_image(image_data: bytes) -> tuple:
     except Exception as e:
         logging.error(f"Image processing error: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid image file")
+
+
+# ============ reCAPTCHA ============
+def verify_recaptcha(token: Optional[str]) -> bool:
+    """Verify reCAPTCHA token with Google. If no secret is configured, skip verification (returns True).
+    """
+    secret = os.environ.get('RECAPTCHA_SECRET')
+    if not secret:
+        # No recaptcha configured — treat as passed
+        logging.info("No RECAPTCHA_SECRET configured; skipping verification")
+        return True
+
+    if not token:
+        logging.warning("No captcha token provided")
+        return False
+
+    try:
+        resp = requests.post(
+            'https://www.google.com/recaptcha/api/siteverify',
+            data={'secret': secret, 'response': token},
+            timeout=5
+        )
+        data = resp.json()
+        # For v3, check score if present; otherwise check success boolean
+        if data.get('success') and (data.get('score', 1.0) >= 0.3):
+            return True
+        logging.warning(f"reCAPTCHA failed: {data}")
+        return False
+    except Exception as e:
+        logging.error(f"reCAPTCHA verification error: {e}")
+        return False
 
 # ============ Matching System ============
 async def find_matches(item: Item, background_tasks: BackgroundTasks):
@@ -374,8 +407,12 @@ async def create_item(
     description: str = Form(...),
     is_anonymous: bool = Form(False),
     image: Optional[UploadFile] = File(None),
+    captcha_token: Optional[str] = Form(None),
     user: User = Depends(require_auth)
 ):
+    # Verify reCAPTCHA token (if configured)
+    if not verify_recaptcha(captcha_token):
+        raise HTTPException(status_code=403, detail="reCAPTCHA verification failed")
     # Process image if provided
     image_url = None
     image_embedding = None
@@ -410,6 +447,47 @@ async def create_item(
         background_tasks.add_task(find_matches, item, background_tasks)
     
     return {"id": item.id, "message": "Item created successfully"}
+
+
+# ============ Locations & QR endpoints ============
+@api_router.get('/locations')
+async def get_locations(user: User = Depends(require_auth)):
+    # Return distinct active locations and counts
+    try:
+        locations = await db.items.distinct('location', {'status': 'active'})
+        # Provide counts
+        result = []
+        for loc in locations:
+            count = await db.items.count_documents({'location': loc, 'status': 'active'})
+            result.append({'location': loc, 'count': count})
+        return result
+    except Exception as e:
+        logging.error(f"Error fetching locations: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch locations")
+
+
+@api_router.get('/qr')
+async def get_qr(location: str, user: User = Depends(require_auth)):
+    """Return a PNG QR code image that links to the frontend dashboard filtered by the given location."""
+    try:
+        frontend_base = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
+        # Build target URL
+        target = f"{frontend_base}/dashboard?location={quote_plus(location)}"
+
+        # Generate QR
+        qr = qrcode.QRCode(border=2)
+        qr.add_data(target)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        buf.seek(0)
+
+        return Response(content=buf.getvalue(), media_type='image/png')
+    except Exception as e:
+        logging.error(f"Error generating QR for location {location}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate QR code")
 
 @api_router.get("/items", response_model=List[ItemResponse])
 async def get_items(

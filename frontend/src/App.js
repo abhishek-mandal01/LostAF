@@ -10,8 +10,10 @@ import MyItems from "@/pages/MyItems";
 import AdminDashboard from "@/pages/AdminDashboard";
 import { Toaster } from "@/components/ui/sonner";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || window?.REACT_APP_BACKEND_URL || null;
+// At runtime, if env var wasn't embedded at build time, fall back to window.location.origin
+const resolvedBackend = BACKEND_URL || (typeof window !== 'undefined' ? window.location.origin : '');
+const API = `${resolvedBackend}/api`;
 
 export const api = axios.create({
   baseURL: API,

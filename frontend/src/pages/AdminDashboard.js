@@ -12,10 +12,12 @@ const AdminDashboard = ({ user, setUser }) => {
     total_resolved: 0,
     total_matches: 0
   });
+  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchStats();
+    fetchLocations();
   }, []);
 
   const fetchStats = async () => {
@@ -27,6 +29,15 @@ const AdminDashboard = ({ user, setUser }) => {
       toast.error('Failed to load statistics');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchLocations = async () => {
+    try {
+      const resp = await api.get('/locations');
+      setLocations(resp.data || []);
+    } catch (err) {
+      console.error('Failed to fetch locations', err);
     }
   };
 
@@ -115,6 +126,21 @@ const AdminDashboard = ({ user, setUser }) => {
             to automatically match lost and found items, helping students recover their belongings faster. Email notifications 
             are sent when potential matches are found.
           </p>
+        </div>
+
+        <div className="card" style={{marginTop: '2rem'}}>
+          <h2>QR Codes for Locations</h2>
+          <p style={{color: '#718096', marginBottom: '1rem'}}>Scan to view lost items for a location on the portal</p>
+          <div style={{display: 'flex', gap: '1rem', flexWrap: 'wrap'}}>
+            {locations.map(loc => (
+              <div key={loc.location} style={{textAlign: 'center', width: '180px', padding: '0.5rem', borderRadius: '8px', background: '#fff'}}>
+                <div style={{fontWeight: 600, marginBottom: '0.5rem'}}>{loc.location}</div>
+                {/* Resolve backend URL at runtime if env not embedded */}
+                <img src={`${(process.env.REACT_APP_BACKEND_URL || window.location.origin)}/api/qr?location=${encodeURIComponent(loc.location)}`} alt={`QR ${loc.location}`} style={{width: '140px', height: '140px'}} />
+                <div style={{fontSize: '0.9rem', color:'#4a5568', marginTop: '0.5rem'}}>Active: {loc.count}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
